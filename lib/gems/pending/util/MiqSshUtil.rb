@@ -128,7 +128,7 @@ class MiqSshUtil
           data.each_line { |l| return outBuf if doneStr == l.chomp } unless doneStr.nil?
         end
 
-        channel.on_extended_data do |_channel, data|
+        channel.on_extended_data do |_channel, _type, data|
           $log.debug "MiqSshUtil::exec - STDERR: #{data}" if $log
           errBuf << data
         end
@@ -238,7 +238,7 @@ class MiqSshUtil
             end
           end
 
-          channel.on_extended_data do |_channel, data|
+          channel.on_extended_data do |_channel, _type, data|
             $log.debug "MiqSshUtil::suexec - STDERR: #{data}" if $log
             errBuf << data
           end
