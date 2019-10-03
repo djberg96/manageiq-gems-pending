@@ -2,6 +2,7 @@ require 'active_support/core_ext/object/blank'
 require 'fileutils'
 require 'logger'
 require 'sys-uname'
+require 'sys-filesystem'
 require 'uri'
 
 require 'util/miq-exception'
@@ -468,14 +469,7 @@ class MiqGenericMountSession < MiqFileStorage::Interface
   end
 
   def self.raw_disconnect(mnt_point)
-    case Sys::Platform::IMPL
-    when :macosx
-      runcmd("sudo umount #{mnt_point}")
-    when :linux
-      runcmd("umount #{mnt_point}")
-    else
-      raise "platform not supported"
-    end
+    Sys::Filesystem.umount(mnt_point)
   end
 
   private
