@@ -14,107 +14,28 @@ class MiqProcess
     procs.select { |process| [process_name, "#{process_name}.exe"].include?(process.name) }.map(&:pid)
   end
 
-  def self.linux_process_stat(pid = nil)
-    pid ||= Process.pid
-
-    filename = "/proc/#{pid}/stat"
-    raise Errno::ESRCH.new(pid.to_s) unless File.exist?(filename)
-
-    result = {:pid => pid}
-    raw_stats = MiqSystem.readfile_async(filename)
-    unless raw_stats.nil?
-      stats = raw_stats.split(" ")
-      if pid.to_s == stats.shift
-        result[:name]                  = stats.shift.gsub(/(^\(|\)$)/, '')
-        result[:state]                 = stats.shift
-        result[:ppid]                  = stats.shift.to_i
-        result[:pgrp]                  = stats.shift.to_i
-        result[:session]               = stats.shift.to_i
-        result[:tty_nr]                = stats.shift.to_i
-        result[:tpgid]                 = stats.shift.to_i
-        result[:flags]                 = stats.shift
-        result[:minflt]                = stats.shift.to_i
-        result[:cminflt]               = stats.shift.to_i
-        result[:majflt]                = stats.shift.to_i
-        result[:cmajflt]               = stats.shift.to_i
-        result[:utime]                 = stats.shift.to_i
-        result[:stime]                 = stats.shift.to_i
-        result[:cutime]                = stats.shift.to_i
-        result[:cstime]                = stats.shift.to_i
-        result[:priority]              = stats.shift.to_i
-        result[:nice]                  = stats.shift.to_i
-        result[:num_threads]           = stats.shift.to_i
-        result[:itrealvalue]           = stats.shift.to_i
-        result[:starttime]             = stats.shift.to_i
-        result[:vsize]                 = stats.shift.to_i
-        result[:rss]                   = stats.shift.to_i
-        result[:rsslim]                = stats.shift.to_i
-        result[:startcode]             = stats.shift.to_i
-        result[:endcode]               = stats.shift.to_i
-        result[:startstack]            = stats.shift.to_i
-        result[:kstkesp]               = stats.shift.to_i
-        result[:kstkeip]               = stats.shift.to_i
-        result[:signal]                = stats.shift
-        result[:blocked]               = stats.shift
-        result[:sigignore]             = stats.shift
-        result[:sigcatch]              = stats.shift
-        result[:wchan]                 = stats.shift.to_i
-        result[:nswap]                 = stats.shift.to_i
-        result[:cnswap]                = stats.shift.to_i
-        result[:exit_signal]           = stats.shift.to_i
-        result[:processor]             = stats.shift.to_i
-        result[:rt_priority]           = stats.shift.to_i
-        result[:policy]                = stats.shift.to_i
-        result[:delayacct_blkio_ticks] = stats.shift.to_i
-        result[:guest_time]            = stats.shift.to_i
-        result[:cguest_time]           = stats.shift.to_i
-      end
-    end
-
-    result
+  # Collect and return a list of process information for Linux.
+  #
+  def self.linux_process_stat(pid = Process.pid)
+    Sys::ProcTable.ps(:pid => pid, :smaps => false, :cgroup => false)
   end
 
-  def self.processInfo(pid = nil)
-    pid ||= Process.pid
+  def self.processInfo(pid = Process.pid)
+    result = Sys::ProcTable.ps(:pid => pid, :smaps => true, :cgroup => false).to_h
 
-    result = {:pid => pid}
-
-    case Sys::Platform::IMPL
-    when :mswin, :mingw
-      require 'util/win32/miq-wmi'
-      # WorkingSetSize: The amount of memory in bytes that a process needs to execute efficiently, for an operating system that uses
-      #                 page-based memory management. If an insufficient amount of memory is available (< working set size), thrashing will occur.
-      # KernelModeTime: Time in kernel mode, in 100 nanoseconds
-      # UserModeTime  : Time in user mode, in 100 nanoseconds.
-      wmi = WMIHelper.connectServer
-      process_list_wmi(wmi, pid).each_pair { |_k, v| result = v }
-      wmi.release
-    when :linux
-      x = MiqProcess.linux_process_stat(pid)
-      result[:name]                  = x[:name]
-      result[:priority]              = x[:priority]
-      result[:memory_usage]          = x[:rss] * 4096
-      result[:memory_size]           = x[:vsize]
+    if Sys::Platform::IMPL == :linux
+      result[:memory_usage]          = result[:rss] * 4096
+      result[:memory_size]           = result[:vsize]
       percent_memory                 = (1.0 * result[:memory_usage]) / MiqSystem.total_memory
       result[:percent_memory]        = percent_memory.round(2)
-      result[:cpu_time]              = x[:stime] + x[:utime]
+      result[:cpu_time]              = result[:stime] + x[:utime]
       cpu_status                     = MiqSystem.status[:cpu]
       cpu_total                      = (0..3).inject(0) { |sum, x| sum + cpu_status[x].to_i }
       cpu_total                     /= MiqSystem.num_cpus
       percent_cpu                    = (1.0 * result[:cpu_time]) / cpu_total
       result[:percent_cpu]           = percent_cpu.round(2)
-
-      smaps = Sys::ProcTable.ps(:pid => pid).smaps
-      result[:proportional_set_size] = smaps.pss
-      result[:unique_set_size]       = smaps.uss
-    when :macosx
-      h = nil
-      begin
-        h = process_list_linux("ps -p #{pid} -o pid,rss,vsize,%mem,%cpu,time,pri,ucomm", true)
-      rescue
-        raise Errno::ESRCH.new(pid.to_s)
-      end
-      result = h[pid]
+      result[:proportional_set_size] = results[:smaps].pss
+      result[:unique_set_size]       = results[:smaps].uss
     end
 
     result
